@@ -36,7 +36,7 @@ class ODriveUART:
         self.right_axis = right_axis
         self.dir_left = dir_left
         self.dir_right = dir_right
-
+        
         # Clear the ASCII UART buffer
         self.bus.reset_input_buffer()
         self.bus.reset_output_buffer()

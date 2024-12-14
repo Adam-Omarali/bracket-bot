@@ -1,43 +1,28 @@
+from lib.odrive_uart import ODriveUART, reset_odrive
+from lib.imu import FilteredMPU6050
 import time
-from RPi import GPIO
+import os
+import json
 
-# GPIO setup for servo control
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(6, GPIO.OUT)
-pwm = GPIO.PWM(6, 50)  # 50 Hz frequency for servos
-# MG90S servo range is typically 0-180 degrees
-# For 50Hz signal (20ms period):
-# 500μs pulse = 2.5% duty cycle = 0 degrees
-# 2500μs pulse = 12.5% duty cycle = 180 degrees
-min_duty = 2.5    # 500μs pulse (0 degrees)
-mid_duty = 6.5    # 1500μs pulse (90 degrees)
-max_duty = 12.5   # 2500μs pulse (180 degrees)
+imu = FilteredMPU6050()
 
-pwm.start(max_duty)
-time.sleep(2)  # Let servo get to initial position
+reset_odrive()  # Reset ODrive before initializing motors
+time.sleep(1)   # Wait for ODrive to reset
 
-pwm.ChangeDutyCycle(mid_duty)
-time.sleep(2)  # Let servo get to initial position
+# Initialize motors
+# Read motor directions from saved file
+try:
+    with open(os.path.expanduser('~/quickstart/lib/motor_dir.json'), 'r') as f:
+        motor_dirs = json.load(f)
+        left_dir = motor_dirs['left']
+        right_dir = motor_dirs['right']
+except Exception as e:
+    raise Exception("Error reading motor_dir.json")
 
-pwm.ChangeDutyCycle(max_duty)
-time.sleep(2)  # Let servo get to initial position
-
-# for i in range(100):
-#     pwm.ChangeDutyCycle(max_duty - (i * 0.05))
-#     time.sleep(0.05)
-
-# try:
-#     while True:
-#         # Sweep from min to max
-#         for duty in range(int(min_duty * 10), int(max_duty * 10), 10):
-#             pwm.ChangeDutyCycle(duty / 10.0)
-#             time.sleep(0.25)
-            
-#         # Sweep from max to min
-#         for duty in range(int(max_duty * 10), int(min_duty * 10), -10):
-#             pwm.ChangeDutyCycle(duty / 10.0)
-#             time.sleep(0.25)
-
-# except KeyboardInterrupt:
-#     pwm.stop()
-#     GPIO.cleanup()
+motor_controller = ODriveUART(port='/dev/ttyAMA1', left_axis=0, right_axis=1, dir_left=left_dir, dir_right=right_dir)
+motor_controller.start_left()
+motor_controller.enable_torque_mode_left()
+motor_controller.start_right()
+motor_controller.enable_torque_mode_right()
+motor_controller.set_speed_rpm_left(0)
+motor_controller.set_speed_rpm_right(0)

@@ -169,6 +169,7 @@ def balance():
                     reset_and_initialize_motors()
                     continue
 
+            desired_pos = 0
             # Get desired velocity and yaw rate from keyboard thread
             desired_vel = mqtt_control.desired_vel
             desired_yaw_rate = mqtt_control.desired_yaw_rate
@@ -210,7 +211,7 @@ def balance():
             current_time = time.time()
             times.append(current_time - start_plot_time)
             positions.append(current_pos)
-            desired_positions.append(0)
+            desired_positions.append(desired_pos)
             velocities.append(current_vel)
             desired_velocities.append(desired_vel)
             pitches.append(current_pitch)
@@ -229,7 +230,7 @@ def balance():
             ])
             
             desired_state = np.array([
-                0, desired_vel, zero_angle*np.pi/180, 0, 0, desired_yaw_rate
+                desired_pos, desired_vel, zero_angle*np.pi/180, 0, 0, desired_yaw_rate
             ])
 
             state_error = (current_state - desired_state).reshape((6,1))
@@ -264,7 +265,7 @@ def balance():
                 continue
 
             if cycle_count % 50 == 0:
-                print(f"Loop time: {time.time() - loop_start_time:.6f} sec, u={(float(left_torque), float(right_torque))}, x=[{current_pos:.2f} | 0], v=[{current_vel:.2f} | {desired_vel:.2f}], θ=[{current_pitch:.2f} | {zero_angle:.2f}], ω=[{current_pitch_rate:.2f} | 0], δ=[{current_yaw:.2f} | 0], δ'=[{current_yaw_rate:.2f} | {desired_yaw_rate:.2f}]")
+                print(f"Loop time: {time.time() - loop_start_time:.6f} sec, u={(float(left_torque), float(right_torque))}, x=[{current_pos:.2f} | {desired_pos}], v=[{current_vel:.2f} | {desired_vel:.2f}], θ=[{current_pitch:.2f} | {zero_angle:.2f}], ω=[{current_pitch_rate:.2f} | 0], δ=[{current_yaw:.2f} | 0], δ'=[{current_yaw_rate:.2f} | {desired_yaw_rate:.2f}]")
 
             cycle_count += 1
             time.sleep(max(0, Dt - (time.time() - current_time)))
