@@ -7,12 +7,14 @@ from threading import Thread
 # GPIO setup for servo control
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(6, GPIO.OUT)
+GPIO.setup(13, GPIO.OUT)
 pwm1 = GPIO.PWM(6, 50)  # 50 Hz frequency for servos
+pwm2 = GPIO.PWM(13, 50)  # Second servo
 
 # Calculate duty cycles for angles:
-# 90 degrees = 2.5% duty cycle
-# 0 degrees = 12.5% duty cycle
-error_duty = 12.5     # 90 degrees - legs out
+# 90 degrees = 6.5% duty cycle
+# 0 degrees = 2.5% duty cycle
+error_duty = 6.5     # 90 degrees - legs out
 ok_duty = 2.5       # 0 degrees - legs in
 
 # Track current servo state to avoid unnecessary updates
@@ -48,9 +50,10 @@ def set_servo_positions(duty_cycle):
     if current_state != duty_cycle:
         # Only change position if needed
         pwm1.start(duty_cycle)
+        pwm2.start(duty_cycle)
         pwm_start_time = time.time()
         current_state = duty_cycle
-        print(f"Set servo to {duty_cycle}%")
+        print(f"Set servos to {duty_cycle}%")
 
 def check_watchdog(watchdog):
     current_time = time.time()
@@ -58,8 +61,6 @@ def check_watchdog(watchdog):
         set_servo_positions(error_duty)
     else:
         set_servo_positions(ok_duty)
-        # Keep PWM active when legs are in
-        pwm_start_time = None
 
 # Initialize MQTT subscriber
 watchdog = WatchdogSubscriber()
@@ -70,8 +71,9 @@ set_servo_positions(error_duty)
 
 while True:
     check_watchdog(watchdog)
-    # Only stop PWM after 2 seconds if we're in error state (legs out)
-    if pwm_start_time and time.time() - pwm_start_time >= 2.0 and current_state == error_duty:
+    # Stop the PWM after 1.5 seconds
+    if pwm_start_time and time.time() - pwm_start_time >= 1.5:
         pwm1.stop()
+        pwm2.stop()
         pwm_start_time = None  # Reset the start time
     time.sleep(0.05)  # Check every 50ms
