@@ -54,10 +54,10 @@ class ODriveUART:
             return response
 
     def get_errors_left(self):
-        return self.get_errors(self.left_axis)
+        return (self.has_errors(), self.check_errors_left())
 
     def get_errors_right(self):
-        return self.get_errors(self.right_axis)
+        return (self.has_errors(), self.check_errors_right())
 
     def has_errors(self):
         for axis in [0,1]:

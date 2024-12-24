@@ -3,7 +3,7 @@ import json
 import threading
 
 class RobotController:
-    def __init__(self, velocity_broker="localhost", orientation_broker="localhost", velocity=0.01):
+    def __init__(self, velocity_broker="localhost", orientation_broker="localhost", velocity=0.2):
         self.state = {"position": 0, "velocity": 0, "angle": 0}
         self.executing = False
         self.velocity = velocity  # Default velocity
@@ -67,6 +67,9 @@ class RobotController:
             self.orientation_sub.disconnect()
             self.velocity_pub.disconnect()
 
+    def get_state(self):
+        return self.state
+
 if __name__ == "__main__":
     controller = RobotController()
-    controller.move(desired_pos=0.1)
+    controller.move(desired_pos=1)

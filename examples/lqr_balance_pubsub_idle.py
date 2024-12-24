@@ -103,8 +103,8 @@ def balance():
     Dt = 1./200.
     
     # Constants for idle mode
-    SIGNIFICANT_VELOCITY = 0.1  # m/s
-    IDLE_TIMEOUT = 10000  # seconds
+    SIGNIFICANT_VELOCITY = 0.2  # m/s
+    IDLE_TIMEOUT = 5  # seconds
     IDLE_BALANCE_DURATION = 1  # seconds
     
     # Initialize variables
@@ -196,10 +196,10 @@ def balance():
                 safe_publish_watchdog(watchdog_client, "balance_watchdog", str(current_time))
 
                 # Check for idle timeout
-                # if current_time - last_significant_velocity_time > IDLE_TIMEOUT:
-                #     print("Entering IDLE_WAIT state")
-                #     state = 'IDLE_WAIT'
-                #     t_idle_wait_start = current_time
+                if current_time - last_significant_velocity_time > IDLE_TIMEOUT:
+                    print("Entering IDLE_WAIT state")
+                    state = 'IDLE_WAIT'
+                    t_idle_wait_start = current_time
 
             elif state == 'IDLE_WAIT':
                 # Do not feed the watchdog
