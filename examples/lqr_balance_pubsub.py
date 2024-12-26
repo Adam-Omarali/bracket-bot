@@ -336,7 +336,7 @@ def balance():
             if desired_yaw_rate != 0:
                 start_yaw = (l_pos - r_pos) * MOTOR_TURNS_TO_LINEAR_POS / (2 * WHEEL_DIST)
     
-            orientation_client.publish("robot/orientation", json.dumps({"position": current_pos, "velocity": current_vel, "angle": current_pitch}))
+            orientation_client.publish("robot/orientation", json.dumps({"position": current_pos, "velocity": current_vel, "desired_velocity": desired_vel, "angle": current_pitch}))
 
             # Calculate control outputs
             current_state = np.array([

@@ -1,73 +1,8 @@
-import time  # Import time for adding delays
-from elevenlabs.client import ElevenLabs
+import sys
 import os
-from io import BytesIO
-import sounddevice as sd
-import soundfile as sf
-import numpy as np
-from scipy import signal
-import dotenv
 
-dotenv.load_dotenv()
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import commands.text_to_speech as tts
 
-api_key = os.getenv("ELEVENLABS_API_KEY")
-
-client = ElevenLabs(
-    api_key=api_key,
-)
-
-# Function to play audio
-def play_audio(audio, device_id, device_sample_rate):
-    audio_data = b''.join(audio)
-    data, sample_rate = sf.read(BytesIO(audio_data), dtype='float32')
-
-    # Resample if necessary
-    if sample_rate != device_sample_rate:
-        print(f"Resampling from {sample_rate} to {device_sample_rate}")
-        number_of_samples = int(round(len(data) * float(device_sample_rate) / sample_rate))
-        data = signal.resample(data, number_of_samples)
-        sample_rate = device_sample_rate
-
-    # Increase the volume (optional)
-    volume_increase = 1.0
-    data = data * volume_increase
-
-    try:
-        # Play the audio using the specified device
-        sd.play(data, samplerate=sample_rate, device=device_id)
-        sd.wait()
-        print("Audio played successfully")
-    except sd.PortAudioError as e:
-        print(f"Error playing audio: {e}")
-        print(f"Supported sample rates for this device: {device_sample_rate}")
-
-# Set the desired audio device
-device_name = "UACDemoV1.0"  # Name of the USB audio device
-device_info = sd.query_devices(device_name, 'output')
-device_id = device_info['index']
-device_sample_rate = device_info['default_samplerate']
-
-# Generate and play the first audio
-audio1 = client.generate(
-    text="Hello Anh, its nice to see you again. Can I assist you with anything?",
-    voice="JBFqnCBsd6RMkjVDRZzb",
-    # voice="tdr2UZjCfSq8qpr5CfgU",
-    # voice="ceicSWVDzgXoWidth8WQ",  # raphael
-    model="eleven_multilingual_v2"
-)
-
-play_audio(audio1, device_id, device_sample_rate)
-
-# Wait for a few seconds before the next audio
-time.sleep(3)  # Wait for 3 seconds
-
-# Generate and play the second audio
-audio2 = client.generate(
-    text="I’m Bracket Bot—your assistant; I don’t just think outside the box, I organize it in curly braces!",
-    voice="JBFqnCBsd6RMkjVDRZzb",
-    # voice="tdr2UZjCfSq8qpr5CfgU",
-    # voice="ceicSWVDzgXoWidth8WQ",  # raphael
-    model="eleven_multilingual_v2"
-)
-
-play_audio(audio2, device_id, device_sample_rate)
+if __name__ == "__main__":
+    tts.tts("Hello, world!")  # Speak "Hello, world!" to the user

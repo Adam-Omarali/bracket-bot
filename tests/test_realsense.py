@@ -12,6 +12,7 @@ pipeline_wrapper = rs.pipeline_wrapper(pipeline)
 pipeline_profile = config.resolve(pipeline_wrapper)
 device = pipeline_profile.get_device()
 device_product_line = str(device.get_info(rs.camera_info.product_line))
+print(device)
 
 # Enable streams
 config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
@@ -21,6 +22,10 @@ config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
 pipeline.start(config)
 
 try:
+    # Access RGB sensor to configure settings
+    rgb_sensor = device.first_color_sensor()
+    rgb_sensor.set_option(rs.option.enable_auto_exposure, 1)  # Enable auto exposure
+    rgb_sensor.set_option(rs.option.enable_auto_white_balance, 1)  # Enable auto white balance
     # Wait for a coherent pair of frames
     frames = pipeline.wait_for_frames()
     depth_frame = frames.get_depth_frame()
