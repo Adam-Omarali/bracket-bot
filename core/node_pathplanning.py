@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 
 import json
@@ -19,6 +20,7 @@ MQTT_TOPIC_OCC_GRID       = "robot/tof_map"
 MQTT_TOPIC_PATH_PLAN      = "robot/local_path"
 MQTT_TOPIC_PATH_COMPLETED = "robot/path_completed"
 MQTT_TOPIC_ODOMETRY       = "robot/odometry"
+MQTT_TOPIC_BOTTLE         = "robot/bottle_position"
 
 client = mqtt.Client()
 client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
@@ -32,6 +34,11 @@ need_new_path  = True
 robot_x        = 0.0
 robot_y        = 0.0
 robot_th_deg   = 0.0
+bottle_detected = False
+bottle_x_norm = 0.0  # Normalized bottle x position (-1 to 1)
+MIN_DISTANCE = 0.4  # Minimum approach distance in meters
+MAX_DISTANCE = 1.2  # Maximum approach distance in meters
+BOTTLE_SIZE_THRESHOLD = 0.4  # Bottle size relative to frame to stop approaching
 
 # -----------------------------------------------------------------------------
 # MQTT Callbacks
@@ -43,6 +50,8 @@ def on_message(client, userdata, message):
         on_path_completed(message)
     elif message.topic == MQTT_TOPIC_ODOMETRY:
         on_odometry(message)
+    elif message.topic == MQTT_TOPIC_BOTTLE:
+        on_bottle_detection(message)
 
 def on_occupancy_grid(message):
     global occupancy_grid, grid_params
@@ -78,12 +87,20 @@ def on_odometry(message):
     robot_th = payload.get('theta', 0.0)  # radians
     robot_th_deg = math.degrees(robot_th)
 
+def on_bottle_detection(message):
+    global bottle_detected, bottle_x_norm, need_new_path
+    payload = json.loads(message.payload)
+    bottle_detected = payload.get("detected", False)
+    bottle_x_norm = payload.get("x", 0.0)
+    need_new_path = True
+
 # -----------------------------------------------------------------------------
 # Subscribe
 # -----------------------------------------------------------------------------
 client.subscribe(MQTT_TOPIC_OCC_GRID)
 client.subscribe(MQTT_TOPIC_PATH_COMPLETED)
 client.subscribe(MQTT_TOPIC_ODOMETRY)
+client.subscribe(MQTT_TOPIC_BOTTLE)
 client.on_message = on_message
 
 # -----------------------------------------------------------------------------
@@ -158,25 +175,59 @@ def wrap_angle_180(a_deg):
 # -----------------------------------------------------------------------------
 # Random Target
 # -----------------------------------------------------------------------------
-def pick_random_free_cell_in_front(grid, params, robot_r, robot_c, robot_x, robot_y, robot_th_deg,
-                                   distance_m=1.0, fov_half_deg=90.0, side_margin_deg=5.0, max_tries=30):
-    # We'll pick angles around robot_th_deg
-    min_angle = -(fov_half_deg - side_margin_deg)
-    max_angle = +(fov_half_deg - side_margin_deg)
+def get_bottle_target(grid, params, robot_r, robot_c, robot_x, robot_y, robot_th_deg):
+    global bottle_detected, bottle_x_norm
+    
+    if not bottle_detected:
+        return None
+    
+    # Convert normalized bottle position to angle
+    bottle_angle = bottle_x_norm * 45  # Scale to ±45 degrees
+    target_angle_deg = wrap_angle_180(robot_th_deg + bottle_angle)
+    
+    # Create multiple candidate paths at different distances and angles
+    candidates = []
+    
+    # Try different angles around the bottle direction
+    for angle_offset in [-15, 0, 15]:
+        path_angle = wrap_angle_180(target_angle_deg + angle_offset)
+        
+        # Try different distances
+        for distance in np.linspace(MIN_DISTANCE, MAX_DISTANCE, 5):
+            theta_rad = math.radians(path_angle)
+            tx = robot_x + distance * math.cos(theta_rad)
+            ty = robot_y + distance * math.sin(theta_rad)
 
-    for _ in range(max_tries):
-        delta_deg = random.uniform(min_angle, max_angle)
-        target_angle_deg = wrap_angle_180(robot_th_deg + delta_deg)
-        theta_rad = math.radians(target_angle_deg)
-        tx = robot_x + distance_m * math.cos(theta_rad)
-        ty = robot_y + distance_m * math.sin(theta_rad)
-
-        tr, tc = world_to_grid(tx, ty, params)
-        if is_free(grid, tr, tc):
-            path = a_star(grid, (robot_r, robot_c), (tr, tc))
-            if path is not None:
-                return path
+            tr, tc = world_to_grid(tx, ty, params)
+            if is_free(grid, tr, tc):
+                path = a_star(grid, (robot_r, robot_c), (tr, tc))
+                if path is not None:
+                    # Score this path based on length and angle deviation
+                    path_length = len(path)
+                    angle_deviation = abs(angle_offset)
+                    score = path_length + angle_deviation * 0.5
+                    
+                    candidates.append((score, path))
+    
+    # Return the best path if any were found
+    if candidates:
+        candidates.sort(key=lambda x: x[0])  # Sort by score
+        return candidates[0][1]  # Return path with lowest score
+        
     return None
+
+def check_path_safety(path_rc, grid):
+    """Check if path has enough clearance from obstacles"""
+    if not path_rc:
+        return False
+        
+    for r, c in path_rc:
+        # Check surrounding cells for obstacles
+        for dr in [-1, 0, 1]:
+            for dc in [-1, 0, 1]:
+                if not is_free(grid, r + dr, c + dc):
+                    return False
+    return True
 
 def simplify_path(path_rc, max_waypoints=4):
     if len(path_rc) <= max_waypoints:
@@ -197,6 +248,8 @@ def main():
     global robot_x, robot_y, robot_th_deg
 
     plan_rate = 0.2  # 5Hz
+    retry_count = 0
+    max_retries = 3
 
     while True:
         time.sleep(plan_rate)
@@ -210,30 +263,23 @@ def main():
             print("[node_pathplanning.py] Robot out of bounds in grid!")
             continue
 
-        # Check if path is obstructed
+        # Check if current path is safe
         if current_path is not None:
-            for i, (r, c) in enumerate(current_path):
-                if not is_free(occupancy_grid, r, c):
-                    print(f"[node_pathplanning.py] Path obstructed at idx={i}, re-planning...")
-                    need_new_path = True
-                    current_path = None
-                    break
+            if not check_path_safety(current_path, occupancy_grid):
+                print("[node_pathplanning.py] Path no longer safe, replanning...")
+                need_new_path = True
+                current_path = None
 
         if need_new_path or current_path is None:
-            print("[node_pathplanning.py] Planning a new path...")
-
-            # Try a random heading or just use robot heading
-            path_rc = pick_random_free_cell_in_front(
+            print("[node_pathplanning.py] Planning path to bottle...")
+            
+            path_rc = get_bottle_target(
                 occupancy_grid, grid_params,
                 rr, cc,
-                robot_x, robot_y, robot_th_deg,
-                distance_m=1.0,
-                fov_half_deg=90.0,
-                side_margin_deg=5.0,
-                max_tries=30
+                robot_x, robot_y, robot_th_deg
             )
 
-            if path_rc is not None:
+            if path_rc is not None and check_path_safety(path_rc, occupancy_grid):
                 path_rc = simplify_path(path_rc, 4)
                 path_xy = [grid_to_world(r, c, grid_params) for r, c in path_rc]
 
@@ -244,9 +290,16 @@ def main():
                 client.publish(MQTT_TOPIC_PATH_PLAN, json.dumps(msg))
                 current_path = path_rc
                 need_new_path = False
-                print(f"[node_pathplanning.py] Published path with {len(path_rc)} waypoints.")
+                retry_count = 0
+                print(f"[node_pathplanning.py] Published safe path with {len(path_rc)} waypoints")
             else:
-                print("[node_pathplanning.py] No valid path found in front. Will try again...")
+                retry_count += 1
+                if retry_count >= max_retries:
+                    print("[node_pathplanning.py] Failed to find safe path after multiple attempts")
+                    retry_count = 0
+                    time.sleep(1.0)  # Wait longer before trying again
+                else:
+                    print(f"[node_pathplanning.py] Retrying path planning (attempt {retry_count})")
 
 try:
     main()

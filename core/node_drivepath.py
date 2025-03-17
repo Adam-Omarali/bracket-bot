@@ -10,10 +10,10 @@ MQTT_PORT               = 1883
 MQTT_TOPIC_PATH_PLAN    = "robot/local_path"
 MQTT_TOPIC_DRIVE_CMD    = "robot/drive"
 MQTT_TOPIC_ODOMETRY     = "robot/odometry"
-MQTT_TOPIC_PATH_DONE    = "robot/path_completed"
+MQTT_TOPIC_PATH_DONE    = "robot/path_complete"
 
-MAX_LINEAR_SPEED   = 0.12
-MAX_ANGULAR_SPEED  = 0.4
+MAX_LINEAR_SPEED   = 0.1
+MAX_ANGULAR_SPEED  = 0.5
 K_LINEAR           = 1.0
 K_ANGULAR          = 0.5
 K_ANGULAR_DRIVE    = 0.2
@@ -39,7 +39,10 @@ def on_message(client, userdata, msg):
 def on_path_plan(msg):
     global path_xy, current_index, state
     data = json.loads(msg.payload)
+
+    print("data", data)
     new_path = data.get('path_xy', [])
+    print("new_path", new_path)
     path_xy  = new_path
     current_index = 0
     if path_xy:
@@ -67,6 +70,9 @@ def main():
     try:
         while True:
             time.sleep(0.1)
+
+            # Print the robot's position
+            # print(f"Robot position - X: {robot_x}, Y: {robot_y}, Theta: {robot_th}")
 
             if not path_xy or state == 'IDLE':
                 # Send zero command
@@ -99,27 +105,35 @@ def main():
                     # Next iteration we'll do PATH_DONE
                     pass
                 continue
-
+            print("state", state)
+            state = 'DRIVING'
             if state == 'ROTATING':
+                print("angle_error", angle_error, "angle_threshold", ANGLE_THRESHOLD)
                 if abs(angle_error) < ANGLE_THRESHOLD:
                     state = 'DRIVING'
                 else:
                     # Rotate in place
+                    print("rotating in place")
                     ang_vel = K_ANGULAR * angle_error
                     ang_vel = max(-MAX_ANGULAR_SPEED, min(MAX_ANGULAR_SPEED, ang_vel))
                     cmd = {'linear_velocity': 0.0, 'angular_velocity': ang_vel}
                     client.publish(MQTT_TOPIC_DRIVE_CMD, json.dumps(cmd))
 
             elif state == 'DRIVING':
+                
                 lin_vel = K_LINEAR * dist
                 lin_vel = min(lin_vel, MAX_LINEAR_SPEED)
                 ang_vel = K_ANGULAR_DRIVE * angle_error
                 ang_vel = max(-MAX_ANGULAR_SPEED, min(MAX_ANGULAR_SPEED, ang_vel))
+                
+                # print(f"Robot position - X: {robot_x}, Y: {robot_y}, Theta: {robot_th}")
 
                 cmd = {
                     'linear_velocity': lin_vel,
                     'angular_velocity': ang_vel
                 }
+                
+                
                 client.publish(MQTT_TOPIC_DRIVE_CMD, json.dumps(cmd))
 
     except KeyboardInterrupt:
