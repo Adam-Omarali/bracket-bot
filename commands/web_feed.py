@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from subsystem.Vision import Vision
 
-model = YOLO("best_bottle.pt")
+model = YOLO("../lib/cv/yolo/best_bottle.pt")
 vision = Vision()
 
 # Open the camera (adjust the index if needed)
@@ -98,13 +98,7 @@ class MyHandler(BaseHTTPRequestHandler):
                     # Add frame to processing queue
                     if not frame_processor.frame_queue.full():
                         frame_processor.frame_queue.put(frame)
-
-                    # Get processed frame if available
-                    try:
-                        frame_processed, _ = frame_processor.processed_frame_queue.get_nowait()
-                    except queue.Empty:
-                        pass  # Use unprocessed frame if no processed frame is available
-
+                    
                     ret, jpeg = cv2.imencode('.jpg', frame)
                     if not ret:
                         continue
