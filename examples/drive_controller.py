@@ -138,6 +138,19 @@ class RobotController:
 
         self.stop_motors()
 
+    def get_position(self):
+        """Get the current position of the robot"""
+        return self.motor_controller.get_position_turns_left()
+
+    def get_velocity(self):
+        """Get the current velocity of the robot"""
+        return self.motor_controller.get_velocity_mps_left()
+
+    def set_motor_speeds(self, left_speed, right_speed):
+        """Set the motor speeds directly"""
+        self.motor_controller.set_speed_mps_left(left_speed)
+        self.motor_controller.set_speed_mps_right(right_speed)
+
     def stop_motors(self):
         """Stop both motors"""
         self.motor_controller.stop_left()

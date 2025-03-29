@@ -2,71 +2,20 @@ import cv2
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import numpy as np
-from ultralytics import YOLO
-import yolo_custom
 import sys
 import os
-import threading
-import queue
-from concurrent.futures import ThreadPoolExecutor
+from ultralytics import YOLO
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from subsystem.Vision import Vision
+from subsystem.Vision import RealsenseVision
 
-model = YOLO("../lib/cv/yolo/best_bottle.pt")
-vision = Vision()
-
-# Open the camera (adjust the index if needed)
-# camera = cv2.VideoCapture('/dev/video0')
-
-# Define the list of class labels MobileNet SSD was trained to detect.
-CLASSES = ["bottle"]
-
-class FrameProcessor:
-    def __init__(self):
-        print("Initializing FrameProcessor...")
-        self.frame_queue = queue.Queue(maxsize=2)
-        self.processed_frame_queue = queue.Queue(maxsize=2)
-        self.running = True
-        self.start_processing_thread()
-        print("FrameProcessor initialized successfully")
-
-    def start_processing_thread(self):
-        self.process_thread = threading.Thread(target=self.process_frames)
-        self.process_thread.daemon = True
-        self.process_thread.start()
-
-    def process_frames(self):
-        print("Processing thread started")
-        while self.running:
-            try:
-                frame = self.frame_queue.get(timeout=1)
-                print("Processing new frame")
-                # Process frame with YOLO
-                bottle_coords = yolo_custom.get_bounding_boxes(frame, model)
-                yolo_custom.home_towards_bottle(bottle_coords)
-                
-                # Put processed frame in output queue
-                if self.processed_frame_queue.full():
-                    self.processed_frame_queue.get()
-                self.processed_frame_queue.put((frame, bottle_coords))
-            except queue.Empty:
-                continue
-            except Exception as e:
-                print(f"Error in process_frames: {str(e)}")
-
-    def stop(self):
-        self.running = False
-        if self.process_thread.is_alive():
-            self.process_thread.join()
-
-# Create global frame processor
-frame_processor = FrameProcessor()
+vision = RealsenseVision()
+model = YOLO('lib/cv/yolo/yolo11n.pt', task='detect')
 
 class MyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/' or self.path == '/index.html':
-            # Serve a simple HTML page that displays the camera feed
+            # Serve HTML page
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
@@ -74,44 +23,176 @@ class MyHandler(BaseHTTPRequestHandler):
 <html>
 <head>
     <title>Camera Feed</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
-        body { text-align: center; font-family: Arial, sans-serif; }
+        body { 
+            text-align: center; 
+            font-family: Arial, sans-serif; 
+        }
+        .container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .button {
+            display: inline-block;
+            padding: 10px 20px;
+            margin: 20px;
+            background-color: #4CAF50;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+        }
+        .button:hover {
+            background-color: #45a049;
+        }
+        .command-form {
+            margin-top: 20px;
+        }
+        .text-input {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-right: 10px;
+            width: 300px;
+        }
+        #command-response {
+            display: inline-block;
+            margin-left: 10px;
+            color: #4CAF50;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+        
+        #command-response.show {
+            opacity: 1;
+        }
     </style>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Extract hostname and setup MQTT like in node_web.py
+        const hostname = window.location.hostname;
+        const username = hostname.split('-')[0];
+        const mqttHost = username.includes('.') ? hostname : `${username}-desktop.local`;
+        const client = mqtt.connect(`ws://${mqttHost}:9001`);
+        
+        // Setup MQTT connection status
+        client.on('connect', function () {
+            document.getElementById('status').style.color = 'green';
+            document.getElementById('status').innerHTML = 'Connected';
+        });
+
+        client.on('error', function (error) {
+            document.getElementById('status').style.color = 'red';
+            document.getElementById('status').innerHTML = 'Connection failed: ' + error;
+        });
+
+        // Handle form submission
+        const form = document.querySelector('.command-form');
+        const responseDiv = document.getElementById('command-response');
+        
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const command = form.querySelector('input[name="command"]').value;
+            
+            // Publish command via MQTT
+            client.publish("robot/command", command);
+            
+            // Show feedback message
+            responseDiv.textContent = 'Command sent';
+            responseDiv.classList.add('show');
+            
+            // Hide message after 3 seconds
+            setTimeout(() => {
+                responseDiv.classList.remove('show');
+            }, 3000);
+            
+            form.reset();
+        });
+    });
+    </script>
 </head>
 <body>
     <h1>Live Camera Feed</h1>
-    <img src="/video_feed" width="640" height="480" alt="Camera Feed">
+    <div id="status">Disconnected</div>
+    <div class="container">
+        <img src="/video_feed/combined" width="1280" height="480" alt="Combined Feed">
+    </div>
+    <div class="container">
+        <form class="command-form">
+            <input type="text" name="command" class="text-input" placeholder="Enter command...">
+            <button type="submit" class="button">Submit Command</button>
+            <span id="command-response"></span>
+        </form>
+    </div>
 </body>
-</html>
-'''
+</html>'''
             self.wfile.write(html_content.encode('utf-8'))
-        elif self.path == '/video_feed':
+            
+        elif self.path == '/video_feed/combined':
             self.send_response(200)
             self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=frame')
             self.end_headers()
             try:
                 while True:
-                    ret, frame = vision.get_frame()
-                    if not ret:
+                    color_frame = vision.get_frame('color')
+                    depth_frame = vision.get_frame('depth')
+                    if color_frame is None or depth_frame is None:
                         continue
 
-                    # Add frame to processing queue
-                    if not frame_processor.frame_queue.full():
-                        frame_processor.frame_queue.put(frame)
-                    
-                    ret, jpeg = cv2.imencode('.jpg', frame)
-                    if not ret:
+                    combined_frame = np.hstack((color_frame, depth_frame))
+                    success, jpeg = cv2.imencode('.jpg', combined_frame)
+                    if not success:
                         continue
-                    
+
                     self.wfile.write(b'--frame\r\n')
                     self.wfile.write(b'Content-Type: image/jpeg\r\n')
                     self.wfile.write(b'Content-Length: ' + str(len(jpeg.tobytes())).encode() + b'\r\n')
                     self.wfile.write(b'\r\n')
                     self.wfile.write(jpeg.tobytes())
                     self.wfile.write(b'\r\n')
-                    time.sleep(0.05)  # Adjust delay to control frame rate
+                    time.sleep(0.05)
             except Exception as e:
-                print("Streaming client disconnected: ", str(e))
+                print(f"Combined stream error: {str(e)}")
+                
+        elif self.path == '/video_feed/yolo':
+            self.send_response(200)
+            self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=frame')
+            self.end_headers()
+            try:
+                while True:
+                    color_frame = vision.get_frame('color')
+                    if color_frame is None:
+                        continue
+                    
+                    results = vision.detect_objects(model, frame)
+                    if results is None:
+                        continue
+                        
+                    annotated_frame = vision.draw_bounding_boxes(color_frame, results, model)
+                    if annotated_frame is None:
+                        continue
+                    
+                    success, jpeg = cv2.imencode('.jpg', annotated_frame)
+                    if not success:
+                        continue
+
+                    self.wfile.write(b'--frame\r\n')
+                    self.wfile.write(b'Content-Type: image/jpeg\r\n')
+                    self.wfile.write(b'Content-Length: ' + str(len(jpeg.tobytes())).encode() + b'\r\n')
+                    self.wfile.write(b'\r\n')
+                    self.wfile.write(jpeg.tobytes())
+                    self.wfile.write(b'\r\n')
+                    time.sleep(0.05)
+            except Exception as e:
+                print(f"YOLO stream error: {str(e)}")
         else:
             self.send_error(404, 'File Not Found: %s' % self.path)
 
@@ -128,7 +209,6 @@ def run(server_class=HTTPServer, handler_class=MyHandler, port=8080):
         print(f"Error starting server: {str(e)}")
     finally:
         print("Cleaning up...")
-        frame_processor.stop()  # Clean up when server stops
 
 if __name__ == '__main__':
     run()

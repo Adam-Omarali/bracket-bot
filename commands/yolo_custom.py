@@ -63,7 +63,7 @@ def home_towards_bottle(bottle_coords):
 
     # Publish drive command
     client.publish(MQTT_TOPIC, json.dumps(cmd))
-    
+
 
 def get_bounding_boxes(frame, model):
 
@@ -95,7 +95,7 @@ def get_bounding_boxes(frame, model):
             cv2.putText(frame, f"{model.names[cls]} {conf:.2f}", (x1, y1 - 10), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        client.publish(MQTT_PROCESSED_FRAME, frame)
+        # client.publish(MQTT_PROCESSED_FRAME, frame)
         cv2.imwrite('img.jpg', frame)
     # Get movement direction based on bottle position
     # move_towards_bottle(frame_width, bottle_coords)
@@ -106,9 +106,12 @@ def get_bounding_boxes(frame, model):
 model = YOLO("best_bottle.pt", task="detect")  # Replace with your trained model path
 
 
-vision = Vision()
+# vision = Vision()
+cap = cv2.VideoCapture(0)
 while True:
-    ret,frame = vision.get_frame()
+    
+    # ret,frame = vision.get_frame()
+    ret,frame = cap.read()
     if not ret:
         client.disconnect()
         break
