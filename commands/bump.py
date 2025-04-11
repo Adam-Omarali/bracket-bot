@@ -9,13 +9,21 @@ import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from commands.state import RobotState
-from examples.drive_controller import RobotController
+import paho.mqtt.client as mqtt
 #run this file in parallel with lqr_balance_pubsub.py
+
+MQTT_BROKER_ADDRESS = "localhost"
+MQTT_TOPIC = "robot/drive"
+
+# Create MQTT client
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+client.connect(MQTT_BROKER_ADDRESS)
+client.loop_start()
 
 def bump():
     Dt = 1. / 200. 
     THRESHOLD = 0.2
-    desired_velocity = 0.5  
+    desired_velocity = 0.2  
     window_size = 100
     stabilization_time = 1.0  # Ignore velocity error for 1 second
     velocity_err = []
@@ -25,12 +33,10 @@ def bump():
     t4 = []
     velocity_err_rates = []
     acceleration_err_rates = []
-    controller = RobotController()
     state_provider = RobotState()
-    controller.start_motors()
-    controller.set_motor_speeds(desired_velocity, desired_velocity)
     last_change_time = time.time()
     last_desired_velocity = desired_velocity
+    client.publish(MQTT_TOPIC, json.dumps({'linear_velocity': desired_velocity, 'angular_velocity': 0}))
 
     try:
         while True:
@@ -61,7 +67,7 @@ def bump():
                         if abs(velocity_err_rate) > THRESHOLD and velocity_err_rate * last_desired_velocity < 0 and abs(acceleration_err_rate) > THRESHOLD: #make this as a function of velocity
                             #lower the threshold and change the velocity rate 
                             print(f"Bumped at time {current_time:.2f}")
-                            controller.set_motor_speeds(-desired_velocity, -desired_velocity)
+                            client.publish(MQTT_TOPIC, json.dumps({'linear_velocity': -desired_velocity, 'angular_velocity': 0}))
                             last_change_time = current_time
                             last_desired_velocity = -desired_velocity
 
@@ -82,7 +88,8 @@ def bump():
         plt.plot(t4, acceleration_err_rates)
         plt.savefig("acceleration_err_rate.png")
 
-        controller.stop_motors()
+        client.publish(MQTT_TOPIC, "stop")
+
 
 if __name__ == "__main__":
     bump()
